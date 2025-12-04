@@ -95,8 +95,6 @@ python model_trainers/proposed/tft.py
 python model_trainers/proposed/mlp.py
 ```
 
-*Due to compatibility concern, we suggest running `tft.py` on CPU.*
-
 Then, to test the ensemble method's performance, execute:
 ```
 python test.py
