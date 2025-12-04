@@ -17,9 +17,9 @@ This repo is dedicated to showcase the data engineering and predictive modeling 
 │
 ├── model_trainers/             # This folder contains all model trainers
 │   ├── baselines/
+│   │   ├── baseline_xgb.py
 │   │   ├── run_lstm.py
 │   │   ├── run_transformer.py
-│   │   ├──
 │   │   └── ...
 │   │
 │   └── proposed/
@@ -43,7 +43,7 @@ Under the directory `model_trainers/` are all model trainers. The sub-directory 
 
 ## Script execution
 ### Preparation
-To properly execute the scripts, please navigate to the root directory and install all necessary dependencies using the commend:
+To properly execute the scripts, please ensure that you are on `python` of version `3.11`. Then, please navigate to the root directory and install all necessary dependencies using the commend:
 ```
 pip install -r requirements.txt
 ```
@@ -82,7 +82,7 @@ To run Transformer:
 
 To run XGBoost:
 ```
-
+python model_trainers/baselines/baseline_xgb.py
 ```
 
 #### Proposed method

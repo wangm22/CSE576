@@ -9,3 +9,5 @@ pytorch-forecasting
 matplotlib
 tensorboard
 shap
+xgboost
+datasets>=3.0.0

@@ -377,7 +377,7 @@ def evaluate_tft(tft, df, test_df, time_varying_unknown, time_varying_known, tra
     rmse = np.sqrt(mse)
     r2 = r2_score(actuals, median_predictions)
     direction_accuracy = np.mean(np.sign(median_predictions) == np.sign(actuals)) * 100
-    interval_accuracy = np.mean(np.abs(median_predictions - actuals) <= 0.005) * 100
+    interval_accuracy = np.mean(np.abs(median_predictions - actuals) <= 0.001) * 100
 
     print("\n" + "=" * 80)
     print("TEST SET RESULTS (IMPROVED TFT)")
@@ -530,7 +530,7 @@ if __name__ == "__main__":
         df, train_df, val_df,
         time_varying_unknown, time_varying_known,
         max_epochs=MAX_EPOCHS,
-        find_learning_rate=True  # Set to False to skip LR finder
+        find_learning_rate=False  # Set to False to skip LR finder
     )
 
     # Evaluate
