@@ -7,59 +7,19 @@ from torch import nn
 from transformers import PatchTSTForPrediction
 import os
 from scipy.stats import spearmanr
-
-# ====== Dataset Class (same as training) ======
-class StockDataset(Dataset):
-    def __init__(self, data, split_range, lookback=128, horizon=100):
-        self.data = data.reset_index(drop=True)
-        self.lookback = lookback
-        self.horizon = horizon
-        self.split_start, self.split_end = split_range
-
-        self.valid_end_indices = []
-        for end in range(self.split_start, self.split_end + 1):
-            start = end - self.lookback + 1
-            future_end = end + self.horizon
-            if start >= 0 and future_end < len(self.data):
-                self.valid_end_indices.append(end)
-
-        if len(self.valid_end_indices) == 0:
-            raise ValueError("No valid windows in test split.")
-
-    def __len__(self):
-        return len(self.valid_end_indices)
-
-    def __getitem__(self, idx):
-        end = self.valid_end_indices[idx]
-        start = end - self.lookback + 1
-
-        x = self.data.iloc[start : end + 1].values
-        y = self.data["forward_returns"].iloc[end + 1 : end + 1 + self.horizon].values
-
-        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
-
-
-# ====== MLP (same as training) ======
-class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64):
-        super().__init__()
-        self._mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1)
-        )
-
-    def forward(self, x):
-        return self._mlp(x)
-
+from model_trainers.proposed.mlp import StockDataset, MLP
 
 # ===========================
 #         MAIN TESTING
 # ===========================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", default=50, type=int)
+    parser.add_argument("--epochs", default=100, type=int)
     parser.add_argument("--patch_length", default=14, type=int)
+    parser.add_argument("--lr_patchtst", default=1e-5, type=float)
+    parser.add_argument("--lr_mlp", default=1e-3, type=float)
+    parser.add_argument("--patchtst", default=True, type=bool)
+    parser.add_argument("--tft", default=True, type=bool)
     args = parser.parse_args()
 
     # ------------ Load data ------------
@@ -75,7 +35,7 @@ if __name__ == "__main__":
     test_start = val_end + 1
     test_end = test_start + len(test_df) - 1
 
-    df = df_raw.iloc[:, 2:-1]
+    df = df_raw.iloc[:, :-1]
 
     # ------------ Create test dataset ------------
     test_dataset = StockDataset(df, (test_start, test_end))
@@ -84,16 +44,22 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # ------------ Load PatchTST (frozen) ------------
-    save_dir = f"saved_models/patchtst/patch_{args.patch_length}/finals"
+    save_dir = f"saved_models/patchtst/patch_{args.patch_length}_{args.lr_patchtst}/finals"
     patchtst = PatchTSTForPrediction.from_pretrained(save_dir).to(device)
     patchtst.eval()
     for p in patchtst.parameters():
         p.requires_grad = False
 
     # ------------ Load MLP ------------
-    input_dim = df.shape[1]
+    if args.patchtst and args.tft:
+        input_dim = 21
+    elif args.patchtst:
+        input_dim = 14
+    elif args.tft:
+        input_dim = 7
+
     mlp = MLP(input_dim).to(device)
-    mlp.load_state_dict(torch.load(f"mlp_return_predictor_{args.patch_length}_{args.epochs}.pt", map_location=device))
+    mlp.load_state_dict(torch.load(f"mlp_return_predictor.pt", map_location=device))
     mlp.eval()
 
     criterion = nn.MSELoss()
@@ -103,12 +69,21 @@ if __name__ == "__main__":
 
     # ============ TEST LOOP ============
     with torch.no_grad():
-        for x, y in test_loader:
+        for x, tft_x, y in test_loader:
             x = x.to(device)
             y = y.to(device)
+            tft_x = tft_x.to(device)
 
             patch_features = patchtst(x).prediction_outputs
-            pred = mlp(patch_features).squeeze(-1)
+
+            if args.patchtst and args.tft:
+                mlp_features = torch.cat([patch_features, tft_x], dim=2)
+            elif args.patchtst:
+                mlp_features = patch_features
+            elif args.tft:
+                mlp_features = tft_x
+
+            pred = mlp(mlp_features).squeeze(-1)
 
             preds_all.append(pred.cpu())
             targets_all.append(y.cpu())

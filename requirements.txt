@@ -4,3 +4,8 @@ numpy
 scikit-learn
 torch
 scipy
+pytorch-lightning
+pytorch-forecasting
+matplotlib
+tensorboard
+shap

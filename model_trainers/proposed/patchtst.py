@@ -19,15 +19,15 @@ from tsfm_public.toolkit.time_series_preprocessor import TimeSeriesPreprocessor
 from tsfm_public.toolkit.util import select_by_index
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--patch_length", required=True, type=int)
-parser.add_argument("--lr", default=5e-5, type=float)
+parser.add_argument("--patch_length", default=14, type=int)
+parser.add_argument("--lr", default=1e-5, type=float)
 args = parser.parse_args()
 
 patch_length = args.patch_length
 lr = args.lr
 
 output_dir = f"saved_models/patchtst/patch_{patch_length}_{lr}/checkpoints"
-logging_dir = f"logs/patchtst/patch_{patch_length}"
+logging_dir = f"logs/patchtst/patch_{patch_length}_{lr}"
 save_dir = f"saved_models/patchtst/patch_{patch_length}_{lr}/finals"
 
 dataset_path = "datasets/train_final.csv"
@@ -45,7 +45,7 @@ len_val = len(data[data["split"] == 2])
 len_test = len(data[data["split"] == 1])
 
 context_length = 128
-forecast_horizon = 100
+forecast_horizon = 1
 num_workers = 16
 batch_size = 64
 
@@ -119,23 +119,31 @@ test_dataset = ForecastDFDataset(
 
 config = PatchTSTConfig(
     num_input_channels=len(forecast_columns),
+
     context_length=context_length,
     patch_length=patch_length,
     patch_stride=patch_length,
     prediction_length=forecast_horizon,
-    random_mask_ratio=0.4,
-    d_model=128,
+
+    random_mask_ratio=0.0,
+
+    d_model=64,
     num_attention_heads=16,
     num_hidden_layers=3,
     ffn_dim=256,
-    dropout=0.2,
-    head_dropout=0.2,
+
+    dropout=0.3,
+    head_dropout=0.3,
+
     pooling_type=None,
     channel_attention=False,
+
     scaling="std",
+
     loss="mse",
+
     pre_norm=True,
-    norm_type="batchnorm",
+    norm_type="layernorm",
 )
 model = PatchTSTForPrediction(config)
 
@@ -144,28 +152,38 @@ model = PatchTSTForPrediction(config)
 training_args = TrainingArguments(
     output_dir=output_dir,
     overwrite_output_dir=True,
-    # learning_rate=0.001,
-    num_train_epochs=100,
+
+    learning_rate=args.lr,
+    num_train_epochs=30,
+
     do_eval=True,
     eval_strategy="epoch",
+
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     dataloader_num_workers=num_workers,
+
     save_strategy="epoch",
     logging_strategy="epoch",
     save_total_limit=3,
     logging_dir=logging_dir,  # Make sure to specify a logging directory
+
     load_best_model_at_end=True,  # Load the best model when training ends
     metric_for_best_model="eval_loss",  # Metric to monitor for early stopping
     greater_is_better=False,  # For loss
+
     label_names=["future_values"],
-    learning_rate=args.lr
+    
+    weight_decay=0.1,
+    max_grad_norm=1.0,
+
+    lr_scheduler_type="constant"
 )
 
 # Create the early stopping callback
 early_stopping_callback = EarlyStoppingCallback(
-    early_stopping_patience=10,  # Number of epochs with no improvement after which to stop
-    early_stopping_threshold=0.0001,  # Minimum improvement required to consider as improvement
+    early_stopping_patience=3,  # Number of epochs with no improvement after which to stop
+    early_stopping_threshold=0.0,  # Minimum improvement required to consider as improvement
 )
 
 # define trainer

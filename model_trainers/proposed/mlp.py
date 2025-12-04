@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import PatchTSTForPrediction
 
 class StockDataset(Dataset):
-    def __init__(self, data, split_range, lookback=128, horizon=100):
+    def __init__(self, data, split_range, lookback=128, horizon=1):
         self.data = data.reset_index(drop=True)
         self.lookback = lookback
         self.horizon = horizon
@@ -27,25 +27,33 @@ class StockDataset(Dataset):
                 f"No valid windows found for split_range={split_range}. "
                 f"Try reducing lookback/horizon or adjusting splits."
             )
+        
+        tft_data = pd.read_csv("datasets/predictions_with_quantiles.csv")
+        self.tft_data = {row["date_id"]: 
+                         row[["predicted_q02", "predicted_q10", "predicted_q25", "predicted_q50",
+                              "predicted_q75", "predicted_q90", "predicted_q98"]].to_numpy(dtype=np.float32)
+                         for _, row in tft_data.iterrows()}
+
+        self.date_ids = list(self.data["date_id"])
 
     def __len__(self):
-        # return len(self.data) - self.lookback - self.horizon
         return len(self.valid_end_indices)
 
     def __getitem__(self, idx):
         end = self.valid_end_indices[idx]
         start = end - self.lookback + 1
 
-        # x = self.data.iloc[idx : idx + self.lookback].values
-        # y = self.data["forward_returns"].iloc[idx + self.lookback : idx + self.lookback + self.horizon].values
-        # return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+        date_id = self.date_ids[end]
 
-        x = self.data.iloc[start : end + 1].values
+        x = self.data.iloc[start : end + 1, 2 :].values
+        tft_x = self.tft_data[date_id]
         y = self.data["forward_returns"].iloc[
             end + 1 : end + 1 + self.horizon
         ].values
 
-        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+        return (torch.tensor(x, dtype=torch.float32), 
+                torch.tensor(tft_x, dtype=torch.float32).unsqueeze(0),
+                torch.tensor(y, dtype=torch.float32))
 
 class MLP(nn.Module):
     def __init__(self, input_dim, hidden_dim=64):
@@ -53,6 +61,7 @@ class MLP(nn.Module):
         self._mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(hidden_dim, 1)
         )
 
@@ -77,8 +86,12 @@ class EarlyStopper:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", default=50, type=int)
+    parser.add_argument("--epochs", default=100, type=int)
     parser.add_argument("--patch_length", default=14, type=int)
+    parser.add_argument("--lr_patchtst", default=1e-5, type=float)
+    parser.add_argument("--lr_mlp", default=1e-3, type=float)
+    parser.add_argument("--patchtst", default=True, type=bool)
+    parser.add_argument("--tft", default=True, type=bool)
     args = parser.parse_args()
 
     df = pd.read_csv("datasets/train_final.csv")
@@ -93,7 +106,7 @@ if __name__ == "__main__":
     test_start = val_end + 1
     test_end = test_start + len(test_df) - 1
 
-    df = df.iloc[:, 2:-1]
+    df = df.iloc[:, :-1]
 
     train_dataset = StockDataset(df, (0, train_end))
     val_dataset = StockDataset(df, (val_start, val_end))
@@ -113,16 +126,22 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    save_dir = f"saved_models/patchtst/patch_{args.patch_length}/finals"
+    save_dir = f"saved_models/patchtst/patch_{args.patch_length}_{args.lr_patchtst}/finals"
     _patchtst = PatchTSTForPrediction.from_pretrained(save_dir).to(device)
     _patchtst.eval()
     for p in _patchtst.parameters():
         p.requires_grad = False
 
-    input_dim = len(df.columns)
+    if args.patchtst and args.tft:
+        input_dim = 21
+    elif args.patchtst:
+        input_dim = 14
+    elif args.tft:
+        input_dim = 7
+
     _mlp = MLP(input_dim).to(device)
 
-    optimizer = torch.optim.Adam(_mlp.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(_mlp.parameters(), lr=args.lr_mlp)
     criterion = nn.MSELoss()
 
     early_stopper = EarlyStopper(patience=7, min_delta=1e-5)
@@ -131,14 +150,22 @@ if __name__ == "__main__":
         _mlp.train()
         train_losses = []
 
-        for x, y in train_loader:
+        for x, tft_x, y in train_loader:
             x = x.to(device)
             y = y.to(device)
-
+            tft_x = tft_x.to(device)
+            
             with torch.no_grad():
                 patch_features = _patchtst(x).prediction_outputs
 
-            pred = _mlp(patch_features).squeeze(-1) # TODO: wrong?
+            if args.patchtst and args.tft:
+                mlp_features = torch.cat([patch_features, tft_x], dim=2)
+            elif args.patchtst:
+                mlp_features = patch_features
+            elif args.tft:
+                mlp_features = tft_x
+
+            pred = _mlp(mlp_features).squeeze(-1)
 
             loss = criterion(pred, y)
             train_losses.append(loss.item())
@@ -151,12 +178,21 @@ if __name__ == "__main__":
         val_losses = []
 
         with torch.no_grad():
-            for x, y in val_loader:
+            for x, tft_x, y in val_loader:
                 x = x.to(device)
                 y = y.to(device)
+                tft_x = tft_x.to(device)
 
                 patch_features = _patchtst(x).prediction_outputs
-                pred = _mlp(patch_features).squeeze(-1) # TODO: wrong?
+
+                if args.patchtst and args.tft:
+                    mlp_features = torch.cat([patch_features, tft_x], dim=2)
+                elif args.patchtst:
+                    mlp_features = patch_features
+                elif args.tft:
+                    mlp_features = tft_x
+
+                pred = _mlp(mlp_features).squeeze(-1)
 
                 loss = criterion(pred, y)
                 val_losses.append(loss.item())
@@ -170,4 +206,4 @@ if __name__ == "__main__":
             print("🚨 Early stopping triggered!")
             break
 
-    torch.save(_mlp.state_dict(), f"mlp_return_predictor_{args.patch_length}_{args.epochs}.pt")
+    torch.save(_mlp.state_dict(), f"mlp_return_predictor.pt")
