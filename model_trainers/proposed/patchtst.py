@@ -132,8 +132,8 @@ config = PatchTSTConfig(
     num_hidden_layers=3,
     ffn_dim=256,
 
-    dropout=0.3,
-    head_dropout=0.3,
+    dropout=0.2,
+    head_dropout=0.2,
 
     pooling_type=None,
     channel_attention=False,

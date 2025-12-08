@@ -17,7 +17,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from tqdm import tqdm
 
 from data_preprocessing import StockDataPreprocessor
-from simple_transformer import create_model
+from transformer import create_model
 
 
 class StockDataset(Dataset):
@@ -206,7 +206,7 @@ def grid_search():
             preprocessor = StockDataPreprocessor(lookback_window=window, prediction_horizon=1)
 
             data = preprocessor.preprocess_pipeline(
-                train_path='train_2000.csv',
+                train_path='datasets/train_2000.csv',
                 missing_strategy='mean',
                 test_size=0.1,
                 val_size=100
@@ -340,7 +340,7 @@ def retrain_best_model(best_params):
     )
 
     data = preprocessor.preprocess_pipeline(
-        train_path='train_2000.csv',
+        train_path='datasets/train_2000.csv',
         missing_strategy='mean',
         test_size=0.1,
         val_size=100

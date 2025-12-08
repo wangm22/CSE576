@@ -35,7 +35,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 # ============================================================
 OUTPUT_DIR = 'outputs/tft_improved'
 DATA_PATH = 'datasets/train_2000.csv'
-MAX_EPOCHS = 100  # Increased from 30
+MAX_EPOCHS = 30  # Increased from 30
 BATCH_SIZE = 128  # Increased from 64 for better gradient estimates
 MAX_ENCODER_LENGTH = 128  # Increased to 128 for even more historical context
 GRADIENT_CLIP_VAL = 1.0  # Increased from 0.1 for faster learning

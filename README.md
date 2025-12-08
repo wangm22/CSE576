@@ -77,8 +77,9 @@ python run_lstm.py
 
 To run Transformer:
 ```
-
+python model_trainers/baselines/run_transformer.py
 ```
+When running the transformer, if prompted "Retrain best model with 50 epochs?", please type `y`.
 
 To run XGBoost:
 ```
